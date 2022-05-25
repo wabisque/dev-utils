@@ -1,103 +1,196 @@
 <script setup>
-import { computed, inject, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 
-import { useAppColor } from '@/stores/app.js';
-import { debounce } from '@/utilities/delay.js';
+import { debounce, throttle } from '../vanilla/timing.js';
 
-const appColorStore = useAppColor();
+import Button from './Button.vue';
+
 const emits = defineEmits([ 'rotate' ]);
 const props = defineProps(
   {
-    overlay: {
+    autoRotate: {
       type: Boolean,
       default: false
     },
-    overrideIndex: {
-      type: Number,
-      default: undefined
-    },
-    rotate: {
-      type: Boolean,
-      default: false
-    },
-    rotationTime: {
+    autoRotateTiming: {
       type: Number,
       default: 8000
+    },
+    columns: {
+      type: Boolean,
+      default: false
+    },
+    cork: {
+      type: Boolean,
+      default: false
+    },
+    preview: {
+      type: Boolean,
+      default: false
     }
   }
 );
-const navigationHovered = inject('navigationHovered');
 
+const preview = ref();
 const root = ref();
-const images = ref();
+const scroller = ref();
 
-const activeImageIndex = ref(0);
-const corkInlineSize = ref(0);
-const hovered = ref(false);
-const inlineSize = ref(0);
-const mouseX = ref(0);
-const preventScrollDebounce = ref(false);
-const rotation = ref(false);
+const activeItemIndex = ref(0);
+const autoRotating = ref(false);
+const nextButtonFocused = ref(false);
+const nextButtonHovered = ref(false);
+const preventIndexDetection = ref(false);
+const previewCorkSize = ref(0);
+const previewHovered = ref(false);
+const previousButtonFocused = ref(false);
+const previousButtonHovered = ref(false);
+const scrollerBlockSize = ref(0);
+const scrollerCorkSize = ref(0);
+const scrollerHovered = ref(false);
+const scrollerMousePositionX = ref(0);
 
-const imageElements = computed(() => images.value?.querySelectorAll(':scope > :not(:last-child)') ?? []);
+const items = computed(() => scroller.value?.querySelectorAll(':scope > :not(:last-child)') ?? []);
+const thumbnails = computed(() => preview.value?.querySelectorAll(':scope > :not(:last-child)'));
 
-const rootResizeObserver = new ResizeObserver(entries => inlineSize.value = entries[0].contentBoxSize.inlineSize ?? entries[0].contentBoxSize[0].inlineSize);
+const previewResizeObserver = new ResizeObserver(
+  entries => {
+    const lastThumbnail = thumbnails.value[thumbnails.value.length - 1];
 
-let rotationStandby = false;
-let rotationTimeout = null;
+    if(!lastThumbnail)
+      return;
 
-const clearRotationTimeout = () => {
-  rotation.value = false;
-  rotationStandby = false;
+    const inset = `offset${props.columns ? 'Top' : 'Left'}`;
+    const size = `offset${props.columns ? 'Height' : 'Width'}`;
+    const lastThumbnailReached = [ ...thumbnails.value ].find(thumbnail => thumbnail[inset] >= lastThumbnail[inset] + lastThumbnail[size] - entries[0].target[size]);
 
-  clearTimeout(rotationTimeout);
-  rotationTimeout = false;
+    previewCorkSize.value = lastThumbnailReached[inset] - (lastThumbnail[inset] + lastThumbnail[size] - entries[0].target[size]);
+  }
+);
+const scrollerResizeObserver = new ResizeObserver(
+  entries => {
+    scrollerBlockSize.value = entries[0].target.offsetHeight;
+
+    const lastItem = items.value[items.value.length - 1];
+
+    if(!lastItem)
+      return;
+
+    if(props.cork)
+      scrollerCorkSize.value = entries[0].target.offsetWidth - lastItem.offsetWidth;
+    else {
+      const lastItemReached = [ ...items.value ].find(item => item.offsetLeft >= lastItem.offsetLeft + lastItem.offsetWidth - entries[0].target.offsetWidth);
+
+      scrollerCorkSize.value = lastItemReached.offsetLeft - (lastItem.offsetLeft + lastItem.offsetWidth - entries[0].target.offsetWidth);
+    }
+  }
+);
+
+const nextItem = () => {
+  preventIndexDetection.value = true;
+
+  if(activeItemIndex.value == items.value.length - 1)
+    return void (activeItemIndex.value = 0);
+
+  if(!props.cork && items.value[activeItemIndex.value + 1].offsetLeft - (scroller.value.scrollWidth - scroller.value.offsetWidth) > 1)
+    return void (activeItemIndex.value = 0);
+
+  return void activeItemIndex.value++;
 };
 
-const mouseover = event => {
-  if(root.value)
-    mouseX.value = event.clientX - root.value.offsetLeft;
+const previousItem = () => {
+  preventIndexDetection.value = true;
+
+  if(activeItemIndex.value == 0) {
+    if(props.cork)
+      return void (activeItemIndex.value = items.value.length - 1);
+
+      return void (activeItemIndex.value = [ ...items.value.entries() ].reverse().find(([,item]) => item.offsetLeft - (scroller.value.scrollWidth - scroller.value.offsetWidth) <= 1)?.[0] ?? 0);
+  }
+
+  return void activeItemIndex.value--;
 };
 
-const nextImage = () => {
-  rotation.value = false;
-  rotationStandby = false;
-  preventScrollDebounce.value = true;
-
-  if(activeImageIndex.value >= imageElements.value.length - 1)
-    return void (activeImageIndex.value = 0);
-
-  activeImageIndex.value++;
-};
-
-const previousImage = () => {
-  rotation.value = false;
-  rotationStandby = false;
-  preventScrollDebounce.value = true;
-
-  if(activeImageIndex.value <= 0)
-    return void (activeImageIndex.value = imageElements.value.length - 1);
-
-  activeImageIndex.value--;
-};
-
-const scroll = debounce(
+const resumeAutoRotation = debounce(
   () => {
-    if(preventScrollDebounce.value)
-      return void (preventScrollDebounce.value = false);
+    if(scrollerHovered.value || nextButtonFocused.value || nextButtonHovered.value || previewHovered.value || previousButtonFocused.value || previousButtonHovered.value)
+      return;
 
-    for(let index in imageElements.value) {
-      const value = imageElements.value[index];
+    nextItem();
 
-      index = Number(index);
+    autoRotating.value = true;
+    startAutoRotation();
+  },
+  1000
+);
 
-      if(Math.abs(images.value.scrollLeft - value.offsetLeft) <= 0.5 * value.offsetWidth) {
-        if(activeImageIndex.value != index)
-          activeImageIndex.value = index;
-          
-        clearRotationTimeout();
-        setRotationTimeout();
+const startAutoRotation = debounce(
+  () => {
+    if(scrollerHovered.value || nextButtonFocused.value || nextButtonHovered.value || previewHovered.value || previousButtonFocused.value || previousButtonHovered.value || !props.autoRotate || !autoRotating.value) {
+      autoRotating.value = false;
+      return;
+    }
 
+    nextItem();
+  },
+  props.autoRotateTiming < 1000 ? 1000 : props.autoRotateTiming
+);
+
+const nextButton_onblur = () => nextButtonFocused.value = false;
+
+const nextButton_onclick = () => nextItem();
+
+const nextButton_onfocus = () => nextButtonFocused.value = false;
+
+const nextButton_onmouseleave = () => nextButtonHovered.value = false;
+
+const nextButton_onmouseover = () => nextButtonHovered.value = true;
+
+const preview_onclick = event => {
+  if(event.target.parentElement == preview.value) {
+    const index = [ ...thumbnails.value ].findIndex(thumbnail => thumbnail == event.target);
+
+    if(index >= 0)
+      activeItemIndex.value = index;
+  }
+};
+
+const preview_onmouseleave = () => previewHovered.value = false;
+
+const preview_onmouseover = () => previewHovered.value = true;
+
+const previousButton_onblur = () => previousButtonFocused.value = false;
+
+const previousButton_onclick = () => previousItem();
+
+const previousButton_onfocus = () => previousButtonFocused.value = false;
+
+const previousButton_onmouseleave = () => previousButtonHovered.value = false;
+
+const previousButton_onmouseover = () => previousButtonHovered.value = true;
+
+const scroller_onmouseleave = () => scrollerHovered.value = false;
+
+const scroller_onmousemove = throttle(event => scrollerMousePositionX.value = event.clientX - scroller.value.getBoundingClientRect().left, 50);
+
+const scroller_onmouseover = () => scrollerHovered.value = true;
+
+const scroller_onscroll = debounce(
+  () => {
+    if(autoRotating.value)
+      startAutoRotation();
+
+    if(preventIndexDetection.value) {
+      preventIndexDetection.value = false;
+      return;
+    }
+
+    for(const index in items.value) {
+      const item = items.value[index];
+
+      if(item.offsetLeft == scroller.value.scrollLeft) {
+        const indexAsNumber = Number(index);
+
+        activeItemIndex.value = indexAsNumber;
         break;
       }
     }
@@ -105,80 +198,118 @@ const scroll = debounce(
   50
 );
 
-const setRotationTimeout = (duration = props.rotationTime + 50) => {
-  if(typeof props.overrideIndex == 'number')
-    return;
+const scroller_ontouch = () => preventIndexDetection.value = false;
 
-  rotationTimeout = setTimeout(
-    () => {
-      rotation.value = true;
-      rotationTimeout = null;
-    },
-    duration
-  );
-}
+const scroller_onwheel = () => preventIndexDetection.value = false;
 
 watch(
-  activeImageIndex,
-  (value, oldValue) => {
-    if(value != oldValue) {
-      emits('rotate', { index: value, target:  imageElements.value[value] });
-      images.value?.scrollTo({ behavior: 'smooth', left: imageElements.value[value]?.offsetLeft ?? 0 });
-    }
-  }
-);
-
-watch(
-  hovered,
-  value => {
-    if(!value && rotationStandby) {
-      clearRotationTimeout();
-      setRotationTimeout(1000);
-    }
-  }
-);
-
-watch(
-  [ hovered, rotation, () => props.rotate ],
-  ([ hoveredValue, rotationValue, rotateValue ]) => {
-    if(hoveredValue) {
-      rotation.value = false;
-      rotationStandby = true;
+  activeItemIndex,
+  (current, previous) => {
+    if(!scroller.value)
       return;
-    }
 
-    if(rotationValue && rotateValue) {
-      rotation.value = false;
-      nextImage();
+    if(current != previous) {
+      scroller.value.scrollTo(
+        {
+          behavior: 'smooth',
+          left: items.value[current]?.offsetLeft ?? 0
+        }
+      );
+
+      if(!preview.value)
+        return;
+
+      thumbnails.value[previous]?.removeAttribute('data-active');
+      thumbnails.value[current]?.setAttribute('data-active', '');
+
+      preview.value.scrollTo(
+        {
+          behavior: 'smooth',
+          [props.columns ? 'top' : 'left']: thumbnails.value[current]?.[`offset${props.columns ? 'Top' : 'Left'}`] ?? 0
+        }
+      );
     }
   }
 );
 
 watch(
-  () => props.overrideIndex,
-  value => {
-    if(typeof value == 'number') {
-      clearRotationTimeout();
+  [ items, () => props.cork ],
+  ([itemsCurrent, corkCurrent]) => {
+    if(!scroller.value)
+      return;
 
-      if(value >= 0 && value < imageElements.value.length)
-        activeImageIndex.value = value;
-    }
+    const lastItem = itemsCurrent[itemsCurrent.length - 1];
+
+    if(!lastItem)
+      return;
+
+    requestAnimationFrame(
+      () => {
+        if(corkCurrent)
+          scrollerCorkSize.value = scroller.value.offsetWidth - lastItem.offsetWidth;
+        else {
+          const lastItemReached = [ ...itemsCurrent ].find(item => item.offsetLeft >= lastItem.offsetLeft + lastItem.offsetWidth - scroller.value.offsetWidth);
+
+          scrollerCorkSize.value = lastItemReached.offsetLeft - (lastItem.offsetLeft + lastItem.offsetWidth - scroller.value.offsetWidth);
+        }
+      }
+    );
+  },
+  { deep: true }
+);
+
+watch(
+  thumbnails,
+  current => {
+    if(!preview.value)
+      return;
+
+    const lastThumbnail = current[current.length - 1];
+
+    if(!lastThumbnail)
+      return;
+
+    requestAnimationFrame(
+      () => {
+        const inset = `offset${props.columns ? 'Top' : 'Left'}`;
+        const size = `offset${props.columns ? 'Height' : 'Width'}`;
+        const lastThumbnailReached = [ ...current ].find(thumbnail => thumbnail[inset] >= lastThumbnail[inset] + lastThumbnail[size] - preview.value[size]);
+
+        previewCorkSize.value = lastThumbnailReached[inset] - (lastThumbnail[inset] + lastThumbnail[size] - preview.value[size]);
+      }
+    );
+  },
+  { deep: true }
+);
+
+watch(
+  [
+    scrollerHovered,
+    nextButtonFocused,
+    nextButtonHovered,
+    previewHovered,
+    previousButtonFocused,
+    previousButtonHovered,
+    autoRotating,
+    () => props.autoRotate
+  ],
+  () => {
+    if(props.autoRotate && !autoRotating.value)
+      resumeAutoRotation();
   }
 );
 
 onMounted(
   () => {
-    rootResizeObserver.observe(root.value);
+    previewResizeObserver.observe(preview.value);
+    scrollerResizeObserver.observe(scroller.value);
 
-    setRotationTimeout();
+    if(props.autoRotate) {
+      autoRotating.value = true;
+      startAutoRotation();
+    }
 
-    setTimeout(
-      () => {
-        console.log(inlineSize.value, imageElements.value[imageElements.value.length - 1].offsetWidth);
-        corkInlineSize.value = inlineSize.value > imageElements.value[imageElements.value.length - 1].offsetWidth ? (inlineSize.value - imageElements.value[imageElements.value.length - 1].offsetWidth) : 0;
-      },
-      50
-    );
+    thumbnails.value[activeItemIndex.value]?.setAttribute('data-active', '');
   }
 );
 </script>
@@ -186,127 +317,165 @@ onMounted(
 <template>
 <div
   data-component="Carousel"
+  :data-columns="props.columns || undefined"
+  :data-next-button-focused="nextButtonFocused || undefined"
+  :data-next-button-hovered="nextButtonHovered || undefined"
+  :data-next-button-visible="nextButtonHovered || nextButtonFocused || scrollerMousePositionX >= (scroller?.offsetWidth ?? 0) / 2 && scrollerHovered || undefined"
+  :data-preview="props.preview || undefined"
+  :data-preview-hovered="previewHovered || undefined"
+  :data-previous-button-focused="previousButtonFocused || undefined"
+  :data-previous-button-hovered="previousButtonHovered || undefined"
+  :data-previous-button-visible="previousButtonHovered || previousButtonFocused || scrollerMousePositionX < (scroller?.offsetWidth ?? 0) / 2 && scrollerHovered || undefined"
+  :data-scroller-hovered="scrollerHovered || undefined"
   ref="root"
   :style="{
-    '--Carousel-background-color': appColorStore.background,
-    '--Carousel-inline-size': `${inlineSize}px`,
-    '--Carousel-text-color': appColorStore.text
+    '--Carousel-preview-cork-size': `${previewCorkSize}px`,
+    '--Carousel-scroller-block-size': `${scrollerBlockSize}px`,
+    '--Carousel-scroller-cork-size': `${scrollerCorkSize}px`
   }"
-  @mousemove="mouseover"
-  @mouseleave="hovered = false;"
-  @mouseover="hovered = true;"
 >
-  <div class="overlay" :data-active="navigationHovered || undefined" v-if="overlay"></div>
-  <div
-    class="images"
-    ref="images"
-    @scroll="
-      clearRotationTimeout();
-      scroll();
-    "
-    @wheel="
-      preventScrollDebounce = false;
-    "
-    @touchmove="
-      preventScrollDebounce = false;
-    "
-  >
-    <slot></slot>
+  <div class="controls">
+    <Button
+      class="controls__button controls__button--previous"
+      @blur="previousButton_onblur"
+      @click="previousButton_onclick"
+      @focus="previousButton_onfocus"
+      @mouseleave="previousButton_onmouseleave"
+      @mouseover="previousButton_onmouseover"
+    >
+      <span class="feather" :class="`feather-chevron${activeItemIndex == 0 ? 's-right' : '-left'}`"></span>
+    </Button>
 
-    <div class="images__cork" :style="{ 'inline-size': `${corkInlineSize}px` }"></div>
+    <Button
+      class="controls__button controls__button--next"
+      @blur="nextButton_onblur"
+      @click="nextButton_onclick"
+      @focus="nextButton_onfocus"
+      @mouseleave="nextButton_onmouseleave"
+      @mouseover="nextButton_onmouseover"
+    >
+      <span class="feather" :class="`feather-chevron${activeItemIndex == items.length - 1 ? 's-left' : '-right' }`"></span>
+    </Button>
   </div>
 
-  <div class="controls">
-    <button
-      class="controls__button"
-      data-left
-      :data-hidden="(!hovered || mouseX >= root.offsetWidth / 2) || undefined"
-      @click="previousImage"
-    >
-      <span class="feather" :class="`feather-chevron-${activeImageIndex == 0 ? 'right' : 'left'}`"></span>
-    </button>
+  <div
+    class="scroller"
+    ref="scroller"
+    @mouseleave="scroller_onmouseleave"
+    @mousemove="scroller_onmousemove"
+    @mouseover="scroller_onmouseover"
+    @scroll="scroller_onscroll"
+    @touch="scroller_ontouch"
+    @wheel="scroller_onwheel"
+  >
+    <slot/>
 
-    <button
-      class="controls__button"
-      :data-hidden="(!hovered || mouseX < root.offsetWidth / 2) || undefined"
-      data-right
-      @click="nextImage"
-    >
-      <span class="feather" :class="`feather-chevron-${activeImageIndex == imageElements.length - 1 ? 'left' : 'right'}`"></span>
-    </button>
+    <div class="scroller__cork"></div>
+  </div>
+
+  <div
+    class="preview"
+    ref="preview"
+    @click="preview_onclick"
+    @mouseleave="preview_onmouseleave"
+    @mouseover="preview_onmouseover"
+    v-if="props.preview"
+  >
+    <slot name="preview"/>
+
+    <div class="preview__cork"></div>
   </div>
 </div>
 </template>
 
+<style lang="scss">
+[data-component="Carousel"] {
+  .preview,
+  .scroller {
+    & > * {
+      display: inline-block;
+      scroll-snap-align: start;
+    }
+  }
+
+  .preview {
+    & > * {
+      block-size: 100%;
+      inline-size: auto;
+      max-inline-size: 100%;
+      transition-property: outline;
+
+      &:not(:last-child, :nth-last-child(2)) {
+        margin-inline-end: 1em;
+      }
+
+      &[data-active] {
+        outline-color: currentColor;
+        outline-offset: -2px;
+        outline-style: solid;
+        outline-width: 2px;
+      }
+    }
+  }
+
+  &[data-columns] {
+    .preview {
+      & > * {
+        block-size: auto;
+        inline-size: 100%;
+        margin-inline-end: 0;
+        max-block-size: 100%;
+        max-inline-size: auto;
+        
+        &:not(:last-child, :nth-last-child(2)) {
+          margin-block-end: 1em;
+        }
+      }
+    }
+  }
+}
+</style>
+
 <style lang="scss" scoped>
 [data-component="Carousel"] {
   block-size: 100%;
+  display: grid;
+  grid-template-columns: [ main-start ] 1fr [ main-end ];
+  grid-template-rows: [ scroller-start ] auto [scroller-end];
   inline-size: 100%;
 
   .controls {
-    block-size: 100%;
-    inline-size: 100%;
-    inset-block-start: 0;
-    inset-inline-start: 0;
+    align-items: center;
+    display: flex;
+    grid-area: scroller / main;
+    justify-content: space-between;
     pointer-events: none;
-    position: absolute;
-    z-index: 3;
+    z-index: 1;
 
     & > * {
-      pointer-events: auto;
+      pointer-events: initial;
     }
   }
 
   .controls__button {
-    background-color: hsl(var(--Carousel-text-color));
-    border: none;
-    border-radius: 0;
-    color: hsl(var(--Carousel-background-color));
-    cursor: pointer;
-    font-size: 2em;
-    inset-block-start: calc(50% - 0.75em);
-    padding-block: 0.25em;
-    padding-inline: 0.35em;
-    position: absolute;
-    transition-property: opacity;
+    --_transition-property: opacity;
 
-    &[data-left] {
-      inset-inline-start: 0.75em;
-    }
-
-    &[data-right] {
-      inset-inline-end: 0.75em;
-    }
-
-    &[data-hidden] {
-      opacity: 0;
-    }
-  }
-
-  .overlay {
-    block-size: 100%;
-    background-color: hsl(var(--Carousel-background-color));
-    inline-size: 100%;
-    inset-block-start: 0;
-    inset-inline-start: 0;
     opacity: 0;
-    pointer-events: none;
-    position: absolute;
-    transition-property: opacity;
-    z-index: 2;
-
-    &[data-active] {
-      opacity: 0.5;
-    }
   }
 
-  .images {
-    block-size: 100%;
-    inline-size: 100%;
+  .controls__button--previous {
+    margin-inline-start: 1.5em;
+  }
+
+  .controls__button--next {
+    margin-inline-end: 1.5em;
+  }
+
+  .scroller {
+    grid-area: scroller / main;
     overflow: auto hidden;
     scrollbar-width: none;
     scroll-snap-type: x mandatory;
-    z-index: 1;
     white-space: nowrap;
     -ms-overflow-style: none;
 
@@ -315,74 +484,74 @@ onMounted(
     }
   }
 
-  .images__cork {
-    block-size: 0;
+  .scroller__cork {
+    block-size: 1px;
+    inline-size: var(--Carousel-scroller-cork-size);
   }
-}
-</style>
 
-<style lang="scss">
-[data-component="Carousel"] {
-  .images {
-    & > * {
-      display: inline-block;
-      block-size: 100%;
-      scroll-snap-align: start;
+  .preview {
+    block-size: 100%;
+    grid-area: preview / main;
+    inline-size: 100%;
+    overflow: auto hidden;
+    scrollbar-width: none;
+    scroll-snap-type: x mandatory;
+    white-space: nowrap;
+    -ms-overflow-style: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
+
+  .preview__cork {
+    block-size: 1px;
+    inline-size: var(--Carousel-preview-cork-size);
+  }
+
+  &[data-next-button-visible] {
+    .controls__button--next {
+      opacity: 1;
+    }
+  }
+
+  &[data-previous-button-visible] {
+    .controls__button--previous {
+      opacity: 1;
+    }
+  }
+
+  &[data-preview] {
+    grid-template-rows: [scroller-start] auto [scroller-end] 1em [preview-start] 7.5em [preview-end];
+  }
+
+  &[data-columns] {
+    grid-template-columns: [ scroller-start ] auto [ scroller-end ];
+    grid-template-rows: [ main-start ] 1fr [main-end];
+
+    .controls {
+      grid-area: main / scroller;
     }
 
-    & > .home-image {
-      align-items: flex-end;
-      cursor: pointer;
-      display: inline-flex;
-      inline-size: var(--Carousel-inline-size);
-      justify-content: flex-start;
-      padding: 0;
-
-      .home-image__background {
-        block-size: 100%;
-        inline-size: 100%;
-        inset-block-start: 0;
-        inset-inline-start: 0;
-        object-fit: cover;
-        object-position: center;
-        position: absolute;
-        z-index: 1;
-      }
-
-      .home-image__text {
-        background-color: hsl(var(--Carousel-text-color));
-        color: hsl(var(--Carousel-background-color));
-        font-size: 1.25em;
-        padding: 0.75em;
-        z-index: 2;
-      }
-
-      .home-image__text__group {
-        color: hsl(var(--Carousel-background-color) / 0.5);
-        font-weight: 300;
-      }
-
-      .home-image__text__detail {
-        font-weight: 300;
-      }
+    .scroller {
+      grid-area: main / scroller;
     }
 
-    & > .preview-image {
-      inline-size: auto;
-      max-inline-size: var(--Carousel-inline-size);
+    .preview {
+      block-size: var(--Carousel-scroller-block-size);
+      grid-area: main / preview;
+      white-space: normal;
+      overflow: hidden auto;
+      scroll-snap-type: y mandatory;
+    }
 
-      &:not(:first-child) {
-        margin-inline-start: 1.5em;
-      }
+    .preview__cork {
+      block-size: var(--Carousel-preview-cork-size);
+      inline-size: 1px;
+    }
 
-      .preview-image__background {
-        block-size: 100%;
-        inline-size: auto;
-      }
-
-      .preview-image__content {
-        position: absolute;
-      }
+    &[data-preview] {
+      grid-template-columns: [preview-start] 7.5em [preview-end] 1em [scroller-start] auto [scroller-end];
     }
   }
 }

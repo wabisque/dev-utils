@@ -3,7 +3,7 @@
  * @param {Function} callback Callback to be executed on repaint.
  * @returns {Function} Function to call when the callback should be exectuted. When called, a function to cancel the tick would be returned.
  */
-export const animationTick = callback => {
+ export const animationTick = callback => {
   return (...args) => {
     let tickId = null;
     let canceled = false;
@@ -117,10 +117,11 @@ export const throttle = (callback, delay = 1000) => {
 /**
  * Executes a specified callback after a specified every tick specified using a delay.
  * @param {Function} callback Callback to be executed after delay.
- * @param {IdleRequestOptions} options
+ * * @param {Number} [delay = 1000] Time in milliseconds specified for delay.
+ * @param {Boolean} [immediate = false] Specifies whether the first tick happens immediately
  * @returns {Function} Function to call when the callback should be exectuted. When called, a function to cancel the tick would be returned.
  */
- export const tick = (callback) => {
+ export const tick = (callback, delay, immediate = false) => {
   return (...args) => {
     let tickId = null;
     let canceled = false;
@@ -137,7 +138,11 @@ export const throttle = (callback, delay = 1000) => {
         tickId = setTimeout(frame, delay);
     };
 
-    frame();
+    if(immediate)
+      frame();
+    else
+      tickId = setTimeout(frame, delay);
+
     return cancel;
   }
 };
