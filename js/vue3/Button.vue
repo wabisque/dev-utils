@@ -67,6 +67,7 @@ const hovered = ref(false);
     --hovered_color: var(--hovered_color-dark);
   }
 
+  &[color-scheme="light"],
   [color-scheme="light"] {
     --_background-color: var(--_background-color-light);
     --_border-color: var(--_border-color-light);
@@ -79,6 +80,7 @@ const hovered = ref(false);
     --hovered_color: var(--hovered_color-light);
   }
 
+  &[color-scheme="dark"],
   [color-scheme="dark"] {
     --_background-color: var(--_background-color-dark);
     --_border-color: var(--_border-color-dark);
@@ -92,8 +94,8 @@ const hovered = ref(false);
   }
 
   background-color: var(--_background-color);
-  border-radius: 5px;
-  box-shadow: 1px 2px 0.25em 0.4em var(--_box-shadow-color);
+  border-radius: 0.25em;
+  box-shadow: 0.1em 0.2em 0.25em 0.4em var(--_box-shadow-color);
   border: 1px solid var(--_border-color);
   color: var(--_color);
   cursor: pointer;

@@ -42,36 +42,36 @@ const focused = ref(false);
 
 <style lang="scss" scoped>
 [data-component="Input"] {
-  --_background-color-light: hsl(var(--theme-color-background-light));
-  --_background-color-dark: hsl(var(--theme-color-background-dark));
+  --_background-color-light: white;
+  --_background-color-dark: black;
   --_background-color: var(--_background-color-light);
 
-  --_border-color-light: hsl(var(--theme-color-border-light));
-  --_border-color-dark: hsl(var(--theme-color-border-dark));
+  --_border-color-light: black;
+  --_border-color-dark: wwhite;
   --_border-color: var(--_border-color-light);
 
-  --_color-light: hsl(var(--theme-color-text-light));
-  --_color-dark: hsl(var(--theme-color-text-dark));
+  --_color-light: black;
+  --_color-dark: white;
   --_color: var(--_color-light);
 
-  --_icon-color-light: hsl(var(--theme-color-text-light) / 0.5);
-  --_icon-color-dark: hsl(var(--theme-color-text-dark) / 0.5);
+  --_icon-color-light: #00000088;
+  --_icon-color-dark: #ffffff88;
   --_icon-color: var(--_icon-color-light);
 
-  --focused_background-color-light: hsl(var(--theme-color-background-light));
-  --focused_background-color-dark: hsl(var(--theme-color-background-dark));
+  --focused_background-color-light: white;
+  --focused_background-color-dark: black;
   --focused_background-color: var(--focused_background-color-light);
 
-  --focused_border-color-light: hsl(var(--theme-color-brand-light));
-  --focused_border-color-dark: hsl(var(--theme-color-brand-dark));
+  --focused_border-color-light: black;
+  --focused_border-color-dark: white;
   --focused_border-color: var(--focused_border-color-light);
 
-  --focused_color-light: hsl(var(--theme-color-text-light));
-  --focused_color-dark: hsl(var(--theme-color-text-dark));
+  --focused_color-light: black;
+  --focused_color-dark: white;
   --focused_color: var(--focused_color-light);
 
-  --focused_icon-color-light: hsl(var(--theme-color-text-light));
-  --focused_icon-color-dark: hsl(var(--theme-color-text-dark));
+  --focused_icon-color-light: black;
+  --focused_icon-color-dark: white;
   --focused_icon-color: var(--focused_icon-color-light);
 
   @media (prefers-color-scheme: dark) {
@@ -86,6 +86,7 @@ const focused = ref(false);
     --focused_icon-color: var(--focused_icon-color-dark);
   }
 
+  &[color-scheme="light"],
   [color-scheme="light"] {
     --_background-color: var(--_background-color-light);
     --_border-color: var(--_border-color-light);
@@ -98,6 +99,7 @@ const focused = ref(false);
     --focused_icon-color: var(--focused_icon-color-light);
   }
 
+  &[color-scheme="dark"],
   [color-scheme="dark"] {
     --_background-color: var(--_background-color-dark);
     --_border-color: var(--_border-color-dark);
@@ -115,7 +117,7 @@ const focused = ref(false);
   :where(.input) {
     background-color: var(--_background-color);
     border: 1px solid var(--_border-color);
-    border-radius: var(--theme-border-radius-small);
+    border-radius: 0.25em;
     color: var(--_color);
     inline-size: 100%;
     padding-block: 0.65em;

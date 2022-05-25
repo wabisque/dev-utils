@@ -46,6 +46,7 @@ const previousButtonFocused = ref(false);
 const previousButtonHovered = ref(false);
 const scrollerBlockSize = ref(0);
 const scrollerCorkSize = ref(0);
+const scrollerInlineSize = ref(0);
 const scrollerHovered = ref(false);
 const scrollerMousePositionX = ref(0);
 
@@ -69,6 +70,7 @@ const previewResizeObserver = new ResizeObserver(
 const scrollerResizeObserver = new ResizeObserver(
   entries => {
     scrollerBlockSize.value = entries[0].target.offsetHeight;
+    scrollerInlineSize.value = entries[0].target.offsetWidth;
 
     const lastItem = items.value[items.value.length - 1];
 
@@ -331,7 +333,8 @@ onMounted(
   :style="{
     '--Carousel-preview-cork-size': `${previewCorkSize}px`,
     '--Carousel-scroller-block-size': `${scrollerBlockSize}px`,
-    '--Carousel-scroller-cork-size': `${scrollerCorkSize}px`
+    '--Carousel-scroller-cork-size': `${scrollerCorkSize}px`,
+    '--Carousel-scroller-inline-size': `${scrollerInlineSize}px`
   }"
 >
   <div class="controls">
@@ -492,7 +495,7 @@ onMounted(
   .preview {
     block-size: 100%;
     grid-area: preview / main;
-    inline-size: 100%;
+    inline-size: var(--Carousel-scroller-inline-size);
     overflow: auto hidden;
     scrollbar-width: none;
     scroll-snap-type: x mandatory;
@@ -540,6 +543,7 @@ onMounted(
     .preview {
       block-size: var(--Carousel-scroller-block-size);
       grid-area: main / preview;
+      inline-size: 100%;
       white-space: normal;
       overflow: hidden auto;
       scroll-snap-type: y mandatory;
